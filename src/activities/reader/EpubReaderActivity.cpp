@@ -24,6 +24,12 @@ constexpr int statusBarMargin = 19;
 constexpr int progressBarMarginTop = 1;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
+/**
+ * @brief Clamp an integer to the range 0–100.
+ *
+ * @param percent Value to clamp.
+ * @return int The input value limited to be between 0 and 100 inclusive.
+ */
 int clampPercent(int percent) {
   if (percent < 0) {
     return 0;
@@ -139,6 +145,13 @@ void EpubReaderActivity::onExit() {
   epub.reset();
 }
 
+/**
+ * @brief Processes user input and advances the reader state (navigation, page turns, and activity transitions).
+ *
+ * Handles delegation to a sub-activity when present, deferred exits/go-home requests, and suppression of stale button events after returning from sub-activities.
+ * Responds to input to open the reader menu, go home, go back, perform manual page turns (including chapter-skip via long-press), and drive automatic page-turning when enabled.
+ * When navigation or mode changes occur, updates activity state and requests a screen render as needed.
+ */
 void EpubReaderActivity::loop() {
   // Pass input responsibility to sub activity if exists
   if (subActivity) {
@@ -330,6 +343,15 @@ void EpubReaderActivity::loop() {
   }
 }
 
+/**
+ * @brief Handle returning from the reader menu by applying user-selected display settings.
+ *
+ * Exits the menu activity, applies the chosen reader orientation, updates automatic page-turn
+ * state according to the selected option, and requests a screen update.
+ *
+ * @param orientation Reader orientation value to apply (maps to portrait/landscape/inverted).
+ * @param selectedPageTurnOption Selected automatic page-turn option (0 disables auto page turn; non-zero selects a speed).
+ */
 void EpubReaderActivity::onReaderMenuBack(const uint8_t orientation, const uint8_t selectedPageTurnOption) {
   exitActivity();
   // Apply the user-selected orientation when the menu is dismissed.
@@ -526,6 +548,16 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
   }
 }
 
+/**
+ * @brief Apply a new reader orientation and reflow the current chapter.
+ *
+ * Caches the current reading position (spine index, chapter page count, and page)
+ * so it can be restored after re-layout, persists the new orientation to settings,
+ * updates the renderer's coordinate orientation, and resets the active section to
+ * force a layout/reflow in the new orientation.
+ *
+ * @param orientation New reader orientation value (logical orientation stored in SETTINGS).
+ */
 void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
   // No-op if the selected orientation matches current settings.
   if (SETTINGS.orientation == orientation) {
@@ -552,6 +584,16 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
   xSemaphoreGive(renderingMutex);
 }
 
+/**
+ * @brief Enables or disables automatic page turning and configures its interval.
+ *
+ * If `selectedPageTurnOption` is 0, automatic page turning is disabled. Otherwise
+ * automatic page turning is enabled, `lastPageTurnTime` is reset to the current
+ * time, and `pageTurnDuration` is set to 60,000 milliseconds divided by the
+ * pages-per-minute value corresponding to `selectedPageTurnOption`.
+ *
+ * @param selectedPageTurnOption Index of the page-turn speed option; 0 disables automatic page turns.
+ */
 void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption) {
   if (selectedPageTurnOption == 0) {
     automaticPageTurnActive = false;
@@ -563,6 +605,14 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
   automaticPageTurnActive = true;
 }
 
+/**
+ * @brief Main loop for the display task that drives screen updates.
+ *
+ * Runs indefinitely as the display task: when a display update is requested it
+ * serializes access with the rendering mutex and triggers a screen render,
+ * then sleeps briefly between iterations. Intended to be started as a FreeRTOS
+ * task.
+ */
 void EpubReaderActivity::displayTaskLoop() {
   while (true) {
     if (updateRequired) {
@@ -575,7 +625,20 @@ void EpubReaderActivity::displayTaskLoop() {
   }
 }
 
-// TODO: Failure handling
+/**
+ * @brief Render the current EPUB chapter/page to the device display.
+ *
+ * Renders the active section and current page (or an appropriate message) using the renderer,
+ * handling viewport margins, status bar space, cache creation/loading, pending percent jumps,
+ * and progress persistence. The method may:
+ * - show an "End of book" screen when the reader is at the final spine,
+ * - load or build a section cache for the current spine and adjust the section's current page
+ *   using cached progress or a pending percent jump,
+ * - display "Empty chapter" or "Out of bounds" messages when applicable,
+ * - clear and rebuild the section cache and retry rendering if a page load fails,
+ * - disable automatic page turning when the end of the book is reached,
+ * - and save the current reading position to persistent progress storage after a successful render.
+ */
 void EpubReaderActivity::renderScreen() {
   if (!epub) {
     return;
@@ -764,6 +827,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   renderer.restoreBwBuffer();
 }
 
+/**
+ * @brief Renders the reader status bar near the bottom of the screen.
+ *
+ * Draws and positions status bar elements according to current settings and reader state:
+ * progress text/percentage, book or chapter progress bar, battery indicator (with optional percentage),
+ * and either an auto-page-turn indicator (PPM) or the current chapter title. The title is centered
+ * within the remaining space and truncated if it does not fit.
+ *
+ * @param orientedMarginRight Right margin in pixels after applying current device orientation.
+ * @param orientedMarginBottom Bottom margin in pixels after applying current device orientation.
+ * @param orientedMarginLeft Left margin in pixels after applying current device orientation.
+ */
 void EpubReaderActivity::renderStatusBar(const int orientedMarginRight, const int orientedMarginBottom,
                                          const int orientedMarginLeft) const {
   auto metrics = UITheme::getInstance().getMetrics();

@@ -42,6 +42,19 @@ void EpubReaderMenuActivity::displayTaskLoop() {
   }
 }
 
+/**
+ * @brief Process input and update menu state for the EPUB reader activity.
+ *
+ * Handles per-frame input when no sub-activity is active: delegates to an active
+ * sub-activity's loop if present; moves the menu selection on directional input;
+ * toggles or cycles local preview state for ROTATE_SCREEN and AUTO_PAGE_TURN
+ * actions; invokes the configured action callback for other selections; and
+ * notifies the parent of pending orientation and page-turn choice when Back is
+ * pressed.
+ *
+ * The Confirm handling for non-preview actions calls the stored onAction
+ * callback and returns immediately because the callback may delete this object.
+ */
 void EpubReaderMenuActivity::loop() {
   if (subActivity) {
     subActivity->loop();
@@ -87,6 +100,15 @@ void EpubReaderMenuActivity::loop() {
   }
 }
 
+/**
+ * @brief Render the EPUB reader menu UI to the display buffer.
+ *
+ * Clears the screen and lays out the menu according to the current display
+ * orientation, drawing the title (centered within the content area),
+ * a progress summary, the list of menu items with the selected item
+ * highlighted, per-item right-aligned values for rotate and auto-page-turn
+ * options, and bottom button hints, then presents the composed buffer.
+ */
 void EpubReaderMenuActivity::renderScreen() {
   renderer.clearScreen();
   const auto pageWidth = renderer.getScreenWidth();
