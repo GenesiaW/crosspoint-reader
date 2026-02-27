@@ -132,6 +132,7 @@ void EpubReaderActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       automaticPageTurnActive = false;
+      updateLastPageTurnTime = false;
       // updates chapter title space to indicate page turn disabled
       requestUpdate();
       return;
@@ -236,10 +237,7 @@ void EpubReaderActivity::loop() {
 
   if (skipChapter) {
     // if chapter was skipped manually, reset time elapsed
-    if (automaticPageTurnActive) {
-      lastPageTurnTime = millis();
-      updateLastPageTurnTime = true;  // Fallback to update lastPageTurnTime if indexing or rendering takes too long
-    }
+    resetLastPageTurnTime();
     // We don't want to delete the section mid-render, so grab the semaphore
     {
       RenderLock lock(*this);
@@ -258,11 +256,7 @@ void EpubReaderActivity::loop() {
   }
 
   if (prevTriggered) {
-    if (automaticPageTurnActive) {
-      lastPageTurnTime = millis();
-      updateLastPageTurnTime = true;  // Fallback to update lastPageTurnTime if indexing or rendering takes too long
-    }
-
+    resetLastPageTurnTime();
     if (section->currentPage > 0) {
       section->currentPage--;
     } else if (currentSpineIndex > 0) {
@@ -276,10 +270,7 @@ void EpubReaderActivity::loop() {
     }
     requestUpdate();
   } else {
-    if (automaticPageTurnActive) {
-      lastPageTurnTime = millis();
-      updateLastPageTurnTime = true;  // Fallback to update lastPageTurnTime if indexing or rendering takes too long
-    }
+    resetLastPageTurnTime();
 
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
@@ -536,6 +527,13 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
   }
 }
 
+void EpubReaderActivity::resetLastPageTurnTime() {
+  if (automaticPageTurnActive) {
+    lastPageTurnTime = millis();
+    updateLastPageTurnTime = true;  // Fallback to update lastPageTurnTime if indexing or rendering takes too long
+  }
+}
+
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
   if (!epub) {
@@ -642,6 +640,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_CHAPTER), true, EpdFontFamily::BOLD);
     renderStatusBar();
     renderer.displayBuffer();
+    automaticPageTurnActive = false;
+    updateLastPageTurnTime = false;
     return;
   }
 
@@ -650,6 +650,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_OUT_OF_BOUNDS), true, EpdFontFamily::BOLD);
     renderStatusBar();
     renderer.displayBuffer();
+    automaticPageTurnActive = false;
+    updateLastPageTurnTime = false;
     return;
   }
 
@@ -660,7 +662,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       section->clearCache();
       section.reset();
       requestUpdate();  // Try again after clearing cache
-      // TODO: prevent infinite loop if the page keeps failing to load for some reason
+                        // TODO: prevent infinite loop if the page keeps failing to load for some reason
+      automaticPageTurnActive = false;
+      updateLastPageTurnTime = false;
       return;
     }
 
